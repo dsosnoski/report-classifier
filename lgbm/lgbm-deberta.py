@@ -309,7 +309,8 @@ def run_training(train, out_dir, model_path_names, var_name, keep_count, n_split
     accuracy_scores = []
     f1_scores = []
     lgbm_models = []
-    predictions = []
+    predictions = None
+    predict_indices = None
 
     # Iterate through each fold in the cross-validation
     for i, (train_index, test_index) in enumerate(skf.split(X, y), start=1):
@@ -349,7 +350,12 @@ def run_training(train, out_dir, model_path_names, var_name, keep_count, n_split
 
         # Make predictions on the test fold
         predictions_fold = predictor.predict(X_test_fold)
-        predictions.append(predictions_fold)
+        if predictions is None:
+            predictions = predictions_fold
+            predict_indices = test_index
+        else:
+            predictions = np.hstack((predictions, predictions_fold))
+            predict_indices = np.hstack((predict_indices, test_index))
 
         # Calculate F1 score and Cohen kappa score for the fold
         accuracy_fold = accuracy_score(y_test_fold, predictions_fold)
@@ -373,7 +379,7 @@ def run_training(train, out_dir, model_path_names, var_name, keep_count, n_split
 
     with open(os.path.join(out_dir, 'lgbm_models.pkl'), 'wb') as f:
         pickle.dump(lgbm_models, f)
-
+    return predictions, predict_indices
 
 if __name__ == '__main__':
     training_df = pd.read_csv(TRAIN_DATA_PATH)
@@ -399,7 +405,7 @@ if __name__ == '__main__':
 
     variation_name = "debertas-43b-44l-45l"
     keep_count, n_splits = 60, 8
-    run_training(
+    predictions, predict_indices = run_training(
         train_df,
         os.path.join(SAVE_PATH, variation_name),
         model_path_names,
@@ -408,4 +414,7 @@ if __name__ == '__main__':
         n_splits,
         42
     )
+
+    training_df.loc[predict_indices, 'predicts'] = predictions
+    training_df.to_csv(os.path.join(SAVE_PATH, variation_name, 'oof_predicted.csv'), float_format='%.4f', index=False)
 
